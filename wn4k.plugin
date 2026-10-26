@@ -1,0 +1,8 @@
+
+#!name=蜗牛4K自动签到
+#!desc=每天09:00自动签到，支持账号密码与Cookie持久化
+#!author=Custom
+#!homepage=https://wn4k.com
+
+[Script]
+cron "0 9 * * *" script-path=https://raw.githubusercontent.com/S-7-unm/ziqian/refs/heads/main/wn4k,tag=蜗牛4K自动签到,enable=true,timeout=60
