@@ -1,0 +1,58 @@
+/**
+ * 52pojie Cookie 自动抓取 — Loon http-request 脚本
+ *
+ * 作用：拦截对 www.52pojie.cn 的请求，从请求头里取出 Cookie，
+ *      写入 Loon 持久化存储键 pojie_cookie（供「吾爱破解自动签到」脚本直接读取）。
+ *      只在 Cookie 发生变化时通知一次，平时静默。
+ *
+ * 【前置条件】必须开启 MITM 并安装信任 Loon 证书，否则 HTTPS 请求头读不到：
+ *   配置 → MitM → 生成新证书 → 安装证书 →
+ *   iOS 设置 → 通用 → 关于本机 → 证书信任设置 → 开启 Loon 的信任开关
+ *   并确认 配置 → MitM → hostname 里包含 www.52pojie.cn（本插件已自动写入）
+ */
+
+const HOST_RE = /52pojie\.cn/i;
+const KEY = "pojie_cookie";
+const store = typeof $persistentStore !== "undefined" ? $persistentStore : null;
+
+function read(k) { try { return store ? (store.read(k) || "") : ""; } catch (e) { return ""; } }
+function write(k, v) { try { if (store) store.write(v, k); } catch (e) {} }
+function notify(t, s, b) {
+  try { if (typeof $notification !== "undefined") $notification.post(t, s, b); } catch (e) {}
+}
+
+// 大小写不敏感地取请求头
+function getHeader(headers, name) {
+  if (!headers) return "";
+  if (headers[name]) return headers[name];
+  const lower = name.toLowerCase();
+  for (const k in headers) {
+    if (k.toLowerCase() === lower) return headers[k];
+  }
+  return "";
+}
+
+(function main() {
+  try {
+    const url = (typeof $request !== "undefined" && $request.url) || "";
+    if (!HOST_RE.test(url)) return $done({});
+
+    const cookie = getHeader($request.headers, "Cookie");
+    // 未登录或拿到的是空 Cookie 时不覆盖已存的有效值
+    if (!cookie || !/htVC_2132_auth=[^;]+/i.test(cookie)) return $done({});
+
+    const old = read(KEY);
+    if (old === cookie) return $done({});
+
+    write(KEY, cookie);
+    notify(
+      "52pojie Cookie 已" + (old ? "更新" : "保存"),
+      "共 " + cookie.split(";").length + " 项，长度 " + cookie.length,
+      "签到脚本会自动使用这份新 Cookie"
+    );
+    console.log("[52pojie-ck] 已写入 pojie_cookie，长度 " + cookie.length);
+  } catch (e) {
+    console.log("[52pojie-ck] 异常：" + e.message);
+  }
+  $done({});
+})();
