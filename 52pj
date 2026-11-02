@@ -1,0 +1,94 @@
+/**
+ * 吾爱破解 (www.52pojie.cn) 每日签到 — Loon 脚本
+ *
+ * 签到接口：GET https://www.52pojie.cn/home.php?mod=task&do=draw&id=2
+ * 鉴权方式：Discuz Cookie（无需账号密码登录，站点登录口有 ReCaptcha + WAF，无法自动化）
+ *
+ * 【必须配置】Loon → 配置 → 脚本 → 数据持久化，新增一条：
+ *   键：pojie_cookie
+ *   值：浏览器登录 52pojie 后的完整 Cookie 字符串
+ *       （至少包含 htVC_2132_auth 和 htVC_2132_saltkey 两项）
+ */
+
+const SITE = "https://www.52pojie.cn";
+const TASK_URL = SITE + "/home.php?mod=task&do=draw&id=2";
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+const store = typeof $persistentStore !== "undefined" ? $persistentStore : null;
+function read(k) { try { return store ? (store.read(k) || "") : ""; } catch (e) { return ""; } }
+
+function notify(t, s, b) {
+  try { if (typeof $notification !== "undefined") $notification.post(t, s, b); } catch (e) {}
+}
+
+function finish(title, sub, body) {
+  notify(title, sub, body);
+  console.log("[52pojie] " + title + " | " + sub + " | " + body);
+  try { $done(); } catch (e) {}
+}
+
+// 去掉 HTML 标签，便于匹配和截取提示语
+function strip(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function judge(status, html) {
+  const text = strip(html);
+  if (status === 403 || /安全验证|滑动填充拼图|waf_slider/i.test(text)) {
+    return { ok: false, msg: "被站点 WAF 拦截（需滑块验证），当前网络出口 IP 可能被判为机房，换网络再试" };
+  }
+  if (/home\.php\?mod=logging|请先登录|您需要先登录|尚未登录/i.test(text) || /logging&action=login/i.test(text)) {
+    return { ok: false, msg: "Cookie 已失效或未配置，请重新导出并更新持久化存储 pojie_cookie" };
+  }
+  if (/恭喜[^。]{0,20}(签到|领取)|签到成功|任务.{0,6}(领取|完成)成功/i.test(text)) {
+    const m = text.match(/(获得|奖励)[^。]{0,30}/);
+    return { ok: true, msg: "签到成功" + (m ? "，" + m[0] : "") };
+  }
+  if (/已.{0,4}(签到|领取|完成)|今日已|今天已|重复签到|该任务已完成|已经签到/i.test(text)) {
+    return { ok: true, msg: "今日已签到，无需重复操作" };
+  }
+  if (/任务|积分|签到/.test(text)) {
+    return { ok: false, msg: "未识别到签到结果：" + text.slice(0, 90) };
+  }
+  return { ok: false, msg: "响应异常（HTTP " + status + "）：" + text.slice(0, 90) };
+}
+
+(function main() {
+  const cookie = read("pojie_cookie");
+  if (!cookie || !/htVC_2132_auth|_auth=/i.test(cookie)) {
+    return finish(
+      "吾爱破解签到失败",
+      "未配置有效 Cookie",
+      "请在 Loon 持久化存储新增键 pojie_cookie，值为 52pojie 登录后的完整 Cookie"
+    );
+  }
+  $httpClient.get(
+    {
+      url: TASK_URL,
+      headers: {
+        "User-Agent": UA,
+        Cookie: cookie,
+        Referer: SITE + "/forum.php",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+      },
+      timeout: 30,
+    },
+    function (err, resp, data) {
+      if (err) return finish("吾爱破解签到失败", "请求失败：" + err, "检查网络或代理节点是否可用");
+      const status = resp && resp.status ? resp.status : 200;
+      const r = judge(status, data);
+      return r.ok
+        ? finish("吾爱破解签到", r.msg, "52pojie.cn")
+        : finish("吾爱破解签到失败", r.msg, "52pojie.cn");
+    }
+  );
+})();
